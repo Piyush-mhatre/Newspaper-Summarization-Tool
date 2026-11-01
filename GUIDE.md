@@ -216,7 +216,7 @@ fast test suite possible.
 
 | File | Job |
 |---|---|
-| `app.py` | The Flask web server. Receives an uploaded PDF, checks it, saves it to a **unique** temp file, calls the pipeline, deletes the temp file, returns JSON. Contains no newspaper logic. |
+| `api/` | The FastAPI web layer (see Part 9). Receives an uploaded PDF, checks it, saves it to a **unique** temp file, calls the pipeline, deletes the temp file, returns typed JSON. Contains no newspaper logic. |
 | `pipeline/debug.py` | Draws the three pictures and the HTML report (see "See it before you read it"). Its pure helpers (`size_class`, `line_roles`, `summary_counts`) are unit-tested; the drawing code is checked by one test that confirms the files are written. |
 | `eval/metrics.py` | Measuring tools: `cer` (character error rate), `headline_similarity`, `iou` (box overlap). Not used by the app; used to *score* it. |
 | `tests/` | See Part 5. |
@@ -267,7 +267,7 @@ def test_join_lines():
 | **`pytest.approx`** | Compare decimals safely (`0.1+0.2` is not exactly `0.3` in computers). | `test_metrics.py` |
 | **marker** (`@pytest.mark.slow`) | A label. `pyproject.toml` says skip `slow` by default; `pytest -m slow` runs only those. | `test_integration.py`, `test_leaks.py` |
 | **`xfail`** | "This should fail today; we know why." | `test_textutil.py` |
-| **Flask `test_client`** | Pretend to be a browser, with no real server. | `test_api.py` |
+| **FastAPI `TestClient`** | Pretend to be a browser, with no real server. | `test_api.py` |
 
 ### Every test file
 
@@ -383,7 +383,7 @@ Before, settings were spread over `requirements.txt` and `pytest.ini`. Now one f
 
 | Section | What it does |
 |---|---|
-| `[project]` `dependencies` | libraries the program needs **to run** (PyMuPDF, Tesseract wrapper, Pillow, Flask) |
+| `[project]` `dependencies` | libraries the program needs **to run** (PyMuPDF, Tesseract wrapper, Pillow, FastAPI, uvicorn) |
 | `[dependency-groups]` `dev` | libraries only **we** need (pytest, ruff, mypy); never needed by someone just running the program |
 | `[tool.ruff.lint]` | which families of rules to apply (`E`/`W` style, `F` real errors, `I` import order, `B` likely bugs, `UP` modern syntax, `SIM` simplifications) |
 | `[tool.mypy]` | `check_untyped_defs` also checks functions that have no hints; `warn_unused_ignores` stops stale `# type: ignore` comments piling up |
@@ -421,7 +421,7 @@ The first run of ruff and mypy found 8 + 8 findings. We fixed them without chang
 | `layout.py` | font width totals typed as whole numbers but they are decimals | `dict[str, float]` |
 | `extract.py` | Pillow wants a tuple `(w, h)`, not a list; old `Image.LANCZOS` name | tuple; `Image.Resampling.LANCZOS` |
 | `run.py` | a helper function defined in a loop uses the loop variable (a classic source of bugs) | passed explicitly as a default argument |
-| `app.py` | Flask's type does not declare `sort_keys` | `# type: ignore` with a comment; the whole file is replaced by FastAPI next |
+| `app.py` | Flask's type does not declare `sort_keys` | temporary `# type: ignore`; the whole file was replaced by FastAPI in Part 9 |
 | tests | unsorted/unused imports | fixed automatically by `ruff --fix` |
 
 ### Three house rules
@@ -432,3 +432,75 @@ The first run of ruff and mypy found 8 + 8 findings. We fixed them without chang
 3. **The bar only goes up (the "ratchet").** Today mypy is moderate. New packages (the API in the next
    step) will use the strict setting `disallow_untyped_defs`. Old code is tightened a module at a time,
    never loosened.
+
+
+---
+
+## Part 9: The API layer (Flask replaced by FastAPI)
+
+### Words you need
+
+| Word | Plain meaning |
+|---|---|
+| **API** | A program other programs talk to over the network. Ours: "send me a PDF, I send back JSON". |
+| **HTTP, route, status code** | HTTP is the conversation format. A *route* is an address (`POST /process_pdf`). The *status code* is the one-number verdict: 200 fine, 400 your mistake, 413 too big, 422 could not process, 503 busy. |
+| **FastAPI** | The framework: it receives HTTP requests and calls our Python functions. Chosen because it validates input and output from type hints and writes the documentation by itself. |
+| **uvicorn** | The server program that listens on a port and hands requests to FastAPI. FastAPI is the application; uvicorn is what runs it. |
+| **Pydantic** | A library that checks data against a description written as a Python class (a *model*) and refuses data that does not fit. |
+| **OpenAPI / Swagger (`/docs`)** | A standard machine-readable description of an API. FastAPI builds it from our code, and `/docs` shows it as a page where you can try every endpoint. It cannot go out of date because it IS the code. |
+
+### Files in `api/` (one job each, so a failure points at one file)
+
+| File | Job | Open it when... |
+|---|---|---|
+| `main.py` | the routes only: `/`, `/health`, `/process_pdf` | a URL answers the wrong thing |
+| `schemas.py` | the JSON contract as Pydantic models | the response shape is wrong or a field is missing |
+| `uploads.py` | check it is a PDF, parse `pages`, save to a unique temp file and always delete it, enforce the size limit | uploads are rejected or temp files pile up |
+| `errors.py` | one error shape, `{"error": "..."}`, for every failure | an error looks different from the others |
+| `health.py` | "can this machine do OCR?" (is Tesseract found?) | `/health` says `degraded` |
+| `settings.py` | configuration from environment variables | you want to change the size limit or concurrency |
+
+The rule of the package: **no newspaper logic in `api/`**. It validates, calls `pipeline/`, and returns.
+
+### Decisions worth knowing (each is also an interview answer)
+
+1. **The route is a plain `def`, not `async def`.** Processing blocks for a minute or more. An `async def`
+   route that blocks freezes the whole server, because all async routes share one thread. A plain `def`
+   route is run by FastAPI in a worker thread, so other requests (like `/health`) still answer.
+2. **Only one PDF is processed at a time** (`NEWSPAPER_MAX_CONCURRENT_JOBS=1`). OCR needs a lot of memory
+   and CPU. Without a limit, five simultaneous uploads would start five OCR jobs and crash an 8 GB laptop.
+   A second request now gets `503 busy`. The semaphore that does this is released in a `finally`, so even a
+   crash cannot leave the server stuck (there is a test for exactly that). This is a stopgap: in the next
+   sprint a job queue replaces "try again" with "your job is queued".
+3. **Models validate our own output.** `ProcessResponse.model_validate(result)` checks what the pipeline
+   returned before it reaches a client. Two tests protect the contract: one asserts the model fields equal
+   `Article.to_dict()` keys in the same order, one pushes real pages through the models. Rename a field
+   in the pipeline and a test fails and tells you.
+4. **Size is checked twice.** The `Content-Length` header is checked first, cheaply, before the body is
+   read. But a client can lie or omit it, so the size is also counted while copying to disk.
+5. **One error shape.** FastAPI's own errors (404, 405) normally look different from ours. `errors.py`
+   makes every error `{"error": "..."}`, and a test checks it.
+6. **Settings from the environment** (`pydantic-settings`), so Docker, CI and your laptop can differ
+   without code changes.
+
+### Strict typing starts here (the ratchet from Part 8)
+
+`pyproject.toml` now holds `api.*` to the strict mypy standard: every function needs type hints
+(`disallow_untyped_defs`). `pipeline/` and `eval/` keep the moderate setting until we tighten them.
+
+### What changed in the tests
+
+The 9 Flask tests were ported one-to-one (same cases, same expectations; only the client changed) and 14
+new tests were added: health, busy server and recovery, size limit when the header lies, temp file removed
+after an oversized upload, one error shape, OpenAPI documents all status codes, settings from environment,
+and the four contract tests. Total: 114 fast tests (was 100). The dev dependency `httpx2` is the HTTP
+client the test client uses.
+
+### How to run and what you should see
+
+```
+uv run uvicorn api.main:app --reload       # --reload restarts the server when you save a file
+```
+
+Open `http://127.0.0.1:8000/docs`, click `POST /process_pdf`, "Try it out", pick a PDF, fill `pages` with `1`.
+`GET /health` should answer `{"status":"ok","tesseract":"5.5.3"}`.

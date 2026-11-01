@@ -1,6 +1,6 @@
 [project]
 name = "newspaper-pipeline"
-version = "0.3.0"
+version = "0.4.0"
 description = "Turns a newspaper PDF into structured articles (headline, text, summary, bounding box)."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -11,7 +11,10 @@ dependencies = [
     "pymupdf>=1.24",
     "pytesseract>=0.3.10",
     "pillow>=10.0",
-    "flask>=3.0",          # replaced by FastAPI in the next step
+    "fastapi>=0.162.0",
+    "uvicorn>=0.54.0",
+    "python-multipart>=0.0.33",
+    "pydantic-settings>=2.16.2",
 ]
 
 # Dev dependencies: what WE need to build and check it. Never shipped to users.
@@ -21,6 +24,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "mypy>=1.10",
+    "httpx2>=2.16.0",
 ]
 
 [tool.uv]
@@ -51,11 +55,20 @@ ignore = [
 # mypy = type checker. Reads the type hints (`x: int`) and finds places where they are contradicted.
 [tool.mypy]
 python_version = "3.12"
-files = ["pipeline", "eval", "app.py"]
+files = ["pipeline", "eval", "api"]
 check_untyped_defs = true     # also check inside functions that have no hints
 warn_unused_ignores = true    # a `# type: ignore` that is no longer needed is an error
 warn_redundant_casts = true
 no_implicit_optional = true
+plugins = ["pydantic.mypy"]   # understands Pydantic models
+
+# The RATCHET: new code is held to the strict standard. Old code (pipeline, eval) is tightened later.
+[[tool.mypy.overrides]]
+module = ["api.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true
+no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = ["pytesseract.*"]    # this library ships no type information

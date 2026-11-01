@@ -162,7 +162,7 @@ Numeric targets (for example "headline match above X%") are set **after** milest
 - Live web fact-checking of article content
 - Training our own deep layout model
 - GPU or paid cloud services
-- Rich frontend redesign (keep the existing Flask page; improve later)
+- Rich frontend redesign (keep the existing upload page; improve later)
 - Languages other than English (revisit after v1, since the Tesseract language data would need adding)
 
 ## 10. Risks and open questions

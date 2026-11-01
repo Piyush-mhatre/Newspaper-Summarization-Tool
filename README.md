@@ -29,7 +29,32 @@ Run any command inside the project's environment by putting `uv run` in front of
 uv run python -m pipeline.run paper.pdf --pages 1 --out result.json    # CLI
 uv run python -m pipeline.run paper.pdf --pages 1 --no-ocr             # layout only, fast
 uv run python -m pipeline.debug paper.pdf --page 1 --out debug_out     # pictures + HTML report of what was detected
-uv run python app.py                                              # Flask: http://127.0.0.1:5000
+uv run uvicorn api.main:app --reload                              # API: http://127.0.0.1:8000  (docs: /docs)
+```
+
+## API
+
+| Method and path | What it does |
+|---|---|
+| `POST /process_pdf` | multipart form: `pdf` (file, required), `pages` (e.g. `1,3`, optional). Returns articles as JSON. |
+| `GET /health` | `{"status": "ok", "tesseract": "5.5.3"}`, or `"degraded"` / `null` if Tesseract cannot be found. |
+| `GET /docs` | interactive Swagger UI, generated from the code (try the API in the browser). |
+| `GET /openapi.json` | machine-readable API description. |
+
+Every error has one shape, `{"error": "message"}`:
+
+| Status | Meaning |
+|---|---|
+| 400 | no file, not a PDF, or `pages` is not a list of integers |
+| 413 | file larger than the limit (default 50 MB) |
+| 422 | the PDF is valid but could not be processed |
+| 503 | the server is already processing another PDF (one at a time by default) |
+
+Settings (environment variables): `NEWSPAPER_MAX_UPLOAD_MB` (default 50), `NEWSPAPER_MAX_CONCURRENT_JOBS` (default 1).
+
+```powershell
+# Windows PowerShell, from the project folder, with the server running in another window:
+curl.exe -F "pdf=@C:\path\to\paper.pdf" -F "pages=1" http://127.0.0.1:8000/process_pdf
 ```
 
 ## Check everything (start here when something feels wrong)
@@ -80,7 +105,7 @@ The three paths exist because our samples are different:
 | Testing exceptions | `test_weighted_median_needs_lines` in `tests/test_layout.py` |
 | Approximate floats | `pytest.approx` in `tests/test_metrics.py` |
 | `monkeypatch` (fake the slow part) | `tests/test_api.py` |
-| Flask `test_client` | `tests/test_api.py` |
+| FastAPI `TestClient`, Pydantic models | `tests/test_api.py`, `api/schemas.py` |
 | Regression tests (each one pins a real bug we hit) | `tests/test_leaks.py`, search "Regression" in `tests/` |
 | Fixture scope, `xfail` | `tests/test_leaks.py`, `tests/test_textutil.py` |
 | Markers (`slow`) and pytest settings | `pyproject.toml`, `tests/test_integration.py` |
