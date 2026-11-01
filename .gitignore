@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.coverage
+*.json
+!tests/fixtures/*.json
+.venv/
+.mypy_cache/
+.ruff_cache/
+tests/fixtures/*.pdf
+debug_out/
+result.json
