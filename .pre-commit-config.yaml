@@ -1,0 +1,48 @@
+# pre-commit runs these checks on YOUR machine, automatically, before git accepts a commit or push.
+# Explained in GUIDE.md, Part 10. Install once per clone:   uv run pre-commit install
+default_install_hook_types: [pre-commit, pre-push]   # so ONE install command sets up both
+default_stages: [pre-commit]
+
+repos:
+  # --- tidy-ups written by other people (downloaded and cached by pre-commit) ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0   # a fixed version; update with: uv run pre-commit autoupdate
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]   # two spaces at the end of a .md line mean "line break"
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+
+  # --- our own checks. They call `uv run`, so they use the exact versions pinned in uv.lock ---
+  - repo: local
+    hooks:
+      - id: no-sample-pdfs
+        name: sample PDFs must never be committed (copyright)
+        language: fail
+        entry: "PDFs are copyrighted samples. Keep them local, see tests/fixtures/README.md"
+        files: \.pdf$
+
+      - id: ruff
+        name: ruff (lint, auto-fixes what it can)
+        language: system
+        entry: uv run ruff check --fix
+        types: [python]
+
+      - id: mypy
+        name: mypy (types)
+        language: system
+        entry: uv run mypy
+        pass_filenames: false     # mypy checks the whole project, as configured in pyproject.toml
+        types: [python]
+
+      - id: pytest-fast
+        name: pytest (fast tests) before push
+        language: system
+        entry: uv run pytest -q
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]        # slower than the others, so it runs on `git push`, not every commit

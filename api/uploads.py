@@ -50,4 +50,3 @@ def temp_pdf(upload: UploadFile, max_bytes: int) -> Iterator[str]:
         yield path
     finally:
         os.remove(path)
-

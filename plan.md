@@ -182,9 +182,9 @@ Numeric targets (for example "headline match above X%") are set **after** milest
 5. The README explains how to run it, how to run the tests, and the measured results.
 
 
-## 12. Status: baseline v0.2 (built)
+## 12. Status: v0.5 (engineering track in progress)
 
-Covers milestones 0-2 in a first form. Code is in `newspaper_pipeline/`; see its README.
+Covers milestones 0-2 in a first form, plus the engineering track (typed API, tooling, automatic checks). See README.md and GUIDE.md.
 
 | Area | State | Evidence |
 |---|---|---|
@@ -194,14 +194,17 @@ Covers milestones 0-2 in a first form. Code is in `newspaper_pipeline/`; see its
 | Scan path (Times City) | **Rough** | 14-16 candidates for about 12 real stories; false headlines from OCR noise and gutter-crossing lines |
 | Text leaking between stories | **Mostly fixed in v0.2** | Font-family filter, column-slot ownership, OCR with other stories painted out. On IE page 1: SPORTS / TRAIN KILLINGS / EDITORIAL PAGE / foreign byline now appear in 0 of 10 stories; promo box no longer a story; `&amp;` and `|` removed; `continues_on_page` recorded. Remaining: pull-quotes set in the body font |
 | Extractive summary + byline strip | Basic | Summary quality unchanged; judged weak (Judge story summary misses the key fact) |
-| Flask API | Cleaned up | Unique temp files, PDF validation, size limit, 400/413/422 errors |
-| Tests | 100 fast (+1 documented xfail) and 8 slow | `pytest`, `pytest -m slow` |
+| API | **FastAPI** (was Flask) | Pydantic response models, one error shape, `/health`, `/docs`, one job at a time (503 when busy), strict typing; `tests/test_api.py` (23 tests) |
+| Tooling | Done | uv + lock file, ruff, mypy, `scripts/check.py`, pre-commit (commit and push stages), GitHub Actions CI, Dependabot |
+| Tests | 114 fast (+1 documented xfail) and 8 slow; 122 pass with `check.py --all`; coverage 94% locally | `pytest`, `pytest -m slow`. On CI (no sample PDFs): 106 passed, 8 skipped |
 | Debug overlay | Built | `python -m pipeline.debug`; shows lines, ownership and articles on the page, plus an HTML report |
 | Speed | **Slow** | Roughly 100 s for a dense IE page, 50 s for the scan page, on the sandbox CPU; not yet measured on the i3 |
 
 Generalization check (Bombay Times, 4 scanned pages): **weak.** Ads reported as news, story boxes spanning whole pages, garbled headlines on busy layouts. The scan path needs real column/region detection.
 
-Not yet done: labeled benchmark set (milestone 0), boxed-region detection, ad classifier, cross-page joining, LLM summaries.
+Not yet done: Dockerfile, job queue and database (engineering sprint 2), labeled benchmark set (milestone 0), boxed-region detection, ad classifier, cross-page joining, LLM summaries.
+
+Engineering roadmap: sprint 1 = FastAPI (done), tooling (done), pre-commit + CI (done), Docker (next); sprint 2 = PostgreSQL + job queue + caching; sprints 3-4 = the ML track in section 14, then search and monitoring.
 
 ## 13. AI/ML track (first draft; superseded by section 14)
 

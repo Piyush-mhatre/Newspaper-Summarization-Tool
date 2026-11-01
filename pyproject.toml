@@ -25,6 +25,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "httpx2>=2.16.0",
+    "pre-commit>=4.7.0",
 ]
 
 [tool.uv]

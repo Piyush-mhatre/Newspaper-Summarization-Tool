@@ -1,0 +1,44 @@
+# Continuous Integration: GitHub runs the same checks as your laptop, on a clean machine, on every push.
+# Explained in GUIDE.md, Part 10.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:          # also run for every pull request into main
+
+concurrency:             # a newer push cancels the older run of the same branch (saves minutes)
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read         # least privilege: this workflow may read the code and nothing else
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # a stuck job must not run (and bill) for hours
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      - name: Install Tesseract (the OCR program; not a Python package)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
+
+      # Third-party action pinned to an exact commit (the comment says which release that is),
+      # so the action cannot be silently changed under us. Dependabot proposes updates.
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+
+      - name: Install the exact locked dependencies
+        run: uv sync --locked    # fails if uv.lock does not match pyproject.toml
+
+      - name: Hygiene hooks (whitespace, YAML/TOML syntax, large files, no PDFs)
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+        env:
+          SKIP: ruff,mypy        # these two run in the next step; do not run them twice
+
+      - name: Lint, types and tests
+        run: uv run python scripts/check.py

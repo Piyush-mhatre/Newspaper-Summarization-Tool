@@ -1,0 +1,14 @@
+# Dependabot opens pull requests when a newer version exists, so versions never go stale silently.
+version: 2
+updates:
+  - package-ecosystem: github-actions   # the actions used in .github/workflows
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: uv               # the libraries in pyproject.toml / uv.lock
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python-dependencies:              # one combined pull request instead of many small ones
+        patterns: ["*"]

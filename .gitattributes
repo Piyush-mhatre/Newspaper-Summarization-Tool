@@ -1,0 +1,5 @@
+# Let git handle line endings (Windows CRLF vs Linux LF) and never touch binary files.
+* text=auto
+*.pdf binary
+*.png binary
+*.jpg binary

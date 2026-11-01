@@ -426,8 +426,8 @@ The first run of ruff and mypy found 8 + 8 findings. We fixed them without chang
 
 ### Three house rules
 
-1. **Never commit red.** Run `scripts/check.py` before every commit. (Next step: pre-commit does this
-   automatically, and GitHub Actions does it again on every push.)
+1. **Never commit red.** Run `scripts/check.py` before every commit. (Since Part 10, pre-commit does the
+   quick checks automatically and GitHub Actions does everything again on every push.)
 2. **New code gets a test in the same change.** A bug fix gets a regression test first, red, then the fix, green.
 3. **The bar only goes up (the "ratchet").** Today mypy is moderate. New packages (the API in the next
    step) will use the strict setting `disallow_untyped_defs`. Old code is tightened a module at a time,
@@ -504,3 +504,110 @@ uv run uvicorn api.main:app --reload       # --reload restarts the server when y
 
 Open `http://127.0.0.1:8000/docs`, click `POST /process_pdf`, "Try it out", pick a PDF, fill `pages` with `1`.
 `GET /health` should answer `{"status":"ok","tesseract":"5.5.3"}`.
+
+
+---
+
+## Part 10: Automatic checks (pre-commit and CI)
+
+### The idea: catch every problem at the earliest, cheapest place
+
+A mistake costs more the later it is found. Typing an unused import and seeing a red mark costs
+seconds. Finding it after the code is on GitHub and someone else has built on it costs hours. So we
+put a check at every stage, each one slower and stricter than the last:
+
+| Stage | Runs when | Takes | Protects against | Can you skip it? |
+|---|---|---|---|---|
+| `scripts/check.py` | when you run it | ~15 s | anything, on demand | it is optional |
+| **pre-commit** hooks | every `git commit` | ~5 s | sloppy code entering history | yes (`--no-verify`) |
+| **pre-push** hook | every `git push` | ~10 s | broken behaviour leaving your laptop | yes (`--no-verify`) |
+| **CI** (GitHub Actions) | every push and pull request | ~2 min | "works on my machine", skipped hooks | **no**: it runs on GitHub's machines |
+
+The last row is the important one: laptop checks are a *convenience* (fast feedback); CI is the
+*guarantee*, because nobody can bypass it.
+
+### Words you need
+
+| Word | Plain meaning |
+|---|---|
+| **git hook** | A small script that git runs automatically at an event (before a commit, before a push). They live in `.git/hooks/`, which is **not** part of the repository, so each fresh clone must install them again. |
+| **pre-commit** (the tool) | Manages hooks for you: reads `.pre-commit-config.yaml`, installs the hook scripts, runs the checks, and downloads other people's checks. |
+| **CI (continuous integration)** | A robot that runs your checks on a clean computer every time code is pushed, and reports PASS or FAIL next to the commit. |
+| **GitHub Actions** | GitHub's CI service. Configured by YAML files in `.github/workflows/`. |
+| **workflow / job / step** | A workflow is one YAML file. It has jobs (each runs on its own fresh machine). A job is a list of steps (a shell command, or a reusable *action*). |
+| **runner** | The machine that runs a job. `ubuntu-latest` = a fresh Linux virtual machine, thrown away afterwards. |
+| **action** | A reusable step written by someone else, referenced as `owner/name@version` (for example `actions/checkout`). |
+
+### `.pre-commit-config.yaml`, hook by hook
+
+| Hook | Does | Why |
+|---|---|---|
+| `trailing-whitespace`, `end-of-file-fixer` | remove invisible spaces; make files end with one newline | noisy diffs and merge conflicts come from these. **It already found one in `api/uploads.py` the first time it ran.** |
+| `check-yaml`, `check-toml` | the config files parse | a typo in `ci.yml` would otherwise only show up after pushing |
+| `check-merge-conflict` | no leftover `<<<<<<<` markers | |
+| `check-added-large-files` | nothing over 1 MB | keeps accidental PDFs and data dumps out |
+| `no-sample-pdfs` (ours) | refuses any `.pdf` | `.gitignore` can be bypassed with `git add -f`; this cannot. It guards the copyright decision |
+| `ruff` (ours) | lint, with `--fix` | same rules as `check.py` |
+| `mypy` (ours) | types | same rules as `check.py` |
+| `pytest-fast` (ours) | the fast tests, **on push only** | slower than the rest, so it waits for `git push` (`stages: [pre-push]`) |
+
+Settings worth understanding:
+
+- **`repo: local` + `language: system` + `entry: uv run ...`**: our own hooks call the tools through `uv run`, so they use the exact versions pinned in `uv.lock`. If the hooks carried their own copy of ruff, the hook and `check.py` could disagree. One source of truth.
+- **`rev: v6.0.0`**: the downloaded hook collection is pinned to a version, so its behaviour cannot change under you. `uv run pre-commit autoupdate` moves it forward deliberately.
+- **`pass_filenames: false`** (mypy, pytest): they must look at the whole project, not just the changed files.
+- **`default_install_hook_types`**: lets one command, `uv run pre-commit install`, set up both the commit and push hooks.
+
+**When a hook "fails" because it fixed a file** (whitespace, `ruff --fix`): that is normal. The commit is refused, the file is already corrected, you run `git add` on it again and commit again.
+
+I tested all of this against real git: a forced PDF was refused, an unused import was refused, a
+change that broke 3 tests was refused on `git push`, and after reverting it the push went through.
+
+### `.github/workflows/ci.yml`, line by line (the ideas, not the syntax)
+
+| Piece | Meaning |
+|---|---|
+| `on: push (main), pull_request` | when to run |
+| `concurrency ... cancel-in-progress` | if you push twice quickly, the older run is cancelled; no wasted minutes |
+| `permissions: contents: read` | **least privilege**: this workflow can read the code and nothing else, so even a compromised step cannot change your repository |
+| `timeout-minutes: 15` | a hung job cannot run for hours |
+| `actions/checkout@v5` | downloads your code onto the fresh runner (it starts empty) |
+| `apt-get install tesseract-ocr` | the OCR *program* is not a Python package, so the clean machine needs it installed (same as you did on Windows) |
+| `astral-sh/setup-uv@07a047e...  # v10.3.2` | installs uv. **Pinned to an exact commit**, not a tag: tags can be moved later, commits cannot, so a hijacked third-party action cannot change what runs. The comment tells humans which release it is |
+| `enable-cache: true` | keeps downloaded libraries between runs; later runs are much faster |
+| `uv sync --locked` | install exactly what `uv.lock` says, and **fail** if `uv.lock` and `pyproject.toml` disagree (catches "I changed a dependency but forgot to update the lock") |
+| pre-commit step with `SKIP: ruff,mypy` | runs the hygiene hooks; ruff and mypy are skipped here only because the next step runs them |
+| `uv run python scripts/check.py` | the same single command you run locally. Local and CI agree because they run the same thing |
+
+`.github/dependabot.yml` makes GitHub open a pull request when a newer version of a GitHub Action or
+a library exists (weekly), so versions never go stale silently. CI then tests that pull request.
+
+### Two files that make everything reproducible
+
+- **`.python-version`** (contains `3.12`): uv, CI and later Docker all use the same Python. Without it, CI could pick 3.13 and a bug would appear only there.
+- **`.gitattributes`**: tells git how to treat line endings (Windows `CRLF` versus Linux `LF`) and that PDFs and images are binary. It removes the "LF will be replaced by CRLF" warnings and stops line endings from showing up as fake changes.
+
+### What CI will show for this project, and why
+
+On GitHub the sample PDFs do not exist (they are copyrighted and kept local), so the tests that need
+them are *skipped*, not failed:
+
+| Where | Result |
+|---|---|
+| your laptop | 114 passed, 8 deselected, 1 xfailed (with `--all`: 122 passed) |
+| GitHub CI (no PDFs) | **106 passed, 8 skipped, 8 deselected, 1 xfailed**, coverage about 64% |
+
+Coverage is lower on CI only because the PDF-based tests are skipped there. So there is deliberately
+no minimum-coverage rule yet: it would fail on CI for a reason that is not a bug.
+
+### Reading a red CI run
+
+1. On GitHub open the **Actions** tab and click the failed run, then the red step.
+2. The step name tells you the layer: "Hygiene hooks" (file hygiene), or "Lint, types and tests" (then read which of the three lines says FAIL, exactly like locally).
+3. If it fails on CI but passes on your laptop, the cause is an *environment difference*: a missing system program, a file that only exists on your disk (a sample PDF!), a different Python version, or a lock file out of date. That is the exact thing CI is there to reveal.
+
+### Honest limits
+
+- The workflow passes the `actionlint` workflow checker, and I ran every step of it on a clean copy without PDFs. It has **not run on GitHub yet**, so the first push is the real test. If it fails, send me the log of the red step.
+- CI cannot run the slow real-OCR tests (no PDFs). You run those locally with `check.py --all` before a release.
+- The GitHub Action versions (`checkout@v5` and the pinned uv action) were current when I checked; Dependabot will keep them moving.

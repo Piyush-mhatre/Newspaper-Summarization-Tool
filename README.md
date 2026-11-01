@@ -19,6 +19,8 @@ Works offline, CPU only. See `plan.md` for the goal and roadmap.
 uv sync
 # 3. Prove it works
 uv run python scripts/check.py
+# 4. Turn on the automatic checks before every commit and push (once per clone, see GUIDE.md Part 10)
+uv run pre-commit install
 ```
 
 Run any command inside the project's environment by putting `uv run` in front of it.
@@ -56,6 +58,17 @@ Settings (environment variables): `NEWSPAPER_MAX_UPLOAD_MB` (default 50), `NEWSP
 # Windows PowerShell, from the project folder, with the server running in another window:
 curl.exe -F "pdf=@C:\path\to\paper.pdf" -F "pages=1" http://127.0.0.1:8000/process_pdf
 ```
+
+## Automatic checks
+
+| Where | When | What runs |
+|---|---|---|
+| your laptop, `git commit` | every commit | whitespace and file hygiene, ruff, mypy, "no PDFs" guard (a few seconds) |
+| your laptop, `git push` | every push | the fast tests |
+| GitHub Actions (`.github/workflows/ci.yml`) | every push and pull request | everything again on a clean machine. Sample PDFs are not in the repo, so tests that need them are *skipped* there (expected: about 106 passed, 8 skipped) |
+
+Once the repository is on GitHub, add this badge under the title (replace `USER` and `REPO`):
+`![CI](https://github.com/USER/REPO/actions/workflows/ci.yml/badge.svg)`
 
 ## Check everything (start here when something feels wrong)
 
