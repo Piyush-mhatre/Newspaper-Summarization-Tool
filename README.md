@@ -1,4 +1,5 @@
 # Newspaper pipeline (v0.3)
+[![CI](https://github.com/Piyush-mhatre/Newspaper-Summarization-Tool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Piyush-mhatre/Newspaper-Summarization-Tool/actions/workflows/ci.yml)
 
 **New to this? Read `GUIDE.md` first.** It explains every idea, file and test from zero.
 
