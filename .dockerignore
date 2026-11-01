@@ -1,0 +1,19 @@
+# Everything NOT listed in the Dockerfile's COPY lines is irrelevant to the image, and some of it
+# must never be inside it (the copyrighted sample PDFs). Keeping the build context small is also faster.
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+debug_out
+result.json
+*.pdf
+tests
+scripts
+eval
+*.md
+.pre-commit-config.yaml

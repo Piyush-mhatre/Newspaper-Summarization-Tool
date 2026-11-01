@@ -59,13 +59,24 @@ Settings (environment variables): `NEWSPAPER_MAX_UPLOAD_MB` (default 50), `NEWSP
 curl.exe -F "pdf=@C:\path\to\paper.pdf" -F "pages=1" http://127.0.0.1:8000/process_pdf
 ```
 
+## Run with Docker (optional)
+
+```powershell
+docker build -t newspaper-pipeline .
+docker run --rm -p 8000:8000 newspaper-pipeline      # http://127.0.0.1:8000/docs
+# or:  docker compose up --build
+```
+
+The image contains the API, the pipeline, the locked Python libraries and Tesseract, runs as a non-root
+user, and reports its own health. Sample PDFs are never inside it. See GUIDE.md Part 11.
+
 ## Automatic checks
 
 | Where | When | What runs |
 |---|---|---|
 | your laptop, `git commit` | every commit | whitespace and file hygiene, ruff, mypy, "no PDFs" guard (a few seconds) |
 | your laptop, `git push` | every push | the fast tests |
-| GitHub Actions (`.github/workflows/ci.yml`) | every push and pull request | everything again on a clean machine. Sample PDFs are not in the repo, so tests that need them are *skipped* there (expected: about 106 passed, 8 skipped) |
+| GitHub Actions (`.github/workflows/ci.yml`) | every push and pull request | everything again on a clean machine, plus a job that builds the Docker image and smoke-tests it. Sample PDFs are not in the repo, so tests that need them are *skipped* there (expected: about 106 passed, 8 skipped) |
 
 Once the repository is on GitHub, add this badge under the title (replace `USER` and `REPO`):
 `![CI](https://github.com/USER/REPO/actions/workflows/ci.yml/badge.svg)`

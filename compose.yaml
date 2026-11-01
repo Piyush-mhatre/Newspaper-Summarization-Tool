@@ -1,0 +1,13 @@
+# One command to run the service:   docker compose up --build
+# Later sprints add the database and the job queue to this same file.
+services:
+  api:
+    build: .
+    image: newspaper-pipeline
+    ports:
+      - "8000:8000"
+    environment:
+      NEWSPAPER_MAX_UPLOAD_MB: "50"
+      NEWSPAPER_MAX_CONCURRENT_JOBS: "1"
+    mem_limit: 1g      # measured: one dense page peaks near 210 MB, so 1 GB leaves a wide margin
+    restart: unless-stopped

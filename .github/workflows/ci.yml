@@ -42,3 +42,42 @@ jobs:
 
       - name: Lint, types and tests
         run: uv run python scripts/check.py
+
+  # A second job, running in parallel on its own fresh machine: does the Docker image build and start?
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      - name: Build the image
+        run: docker build -t newspaper-pipeline .
+
+      - name: Start the container
+        run: docker run -d --name np -p 8000:8000 newspaper-pipeline
+
+      - name: Wait for Docker's own health check, then smoke-test the API
+        run: |
+          status=starting
+          for i in $(seq 1 45); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' np)
+            echo "attempt $i: $status"
+            [ "$status" = "healthy" ] && break
+            sleep 2
+          done
+          [ "$status" = "healthy" ]
+          curl -fsS http://127.0.0.1:8000/health
+          echo
+          # a file that is not a PDF must be refused with 400 and our error message
+          code=$(curl -s -o /tmp/reply.json -w '%{http_code}' -F "pdf=@README.md" http://127.0.0.1:8000/process_pdf)
+          cat /tmp/reply.json; echo
+          [ "$code" = "400" ]
+          grep -q "not a valid PDF" /tmp/reply.json
+
+      - name: Container logs (only shown when something failed)
+        if: failure()
+        run: docker logs np
+
+      - name: Image size
+        run: docker images newspaper-pipeline

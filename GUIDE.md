@@ -611,3 +611,97 @@ no minimum-coverage rule yet: it would fail on CI for a reason that is not a bug
 - The workflow passes the `actionlint` workflow checker, and I ran every step of it on a clean copy without PDFs. It has **not run on GitHub yet**, so the first push is the real test. If it fails, send me the log of the red step.
 - CI cannot run the slow real-OCR tests (no PDFs). You run those locally with `check.py --all` before a release.
 - The GitHub Action versions (`checkout@v5` and the pinned uv action) were current when I checked; Dependabot will keep them moving.
+
+
+---
+
+## Part 11: Docker (packaging the app so it runs the same everywhere)
+
+### The problem it solves
+
+"It works on my machine." Our app needs Python 3.12, about 40 exact library versions, and the Tesseract
+program. On your laptop you installed all of it by hand. On a server, in CI, or on a recruiter's
+computer, someone would have to repeat that, and any difference (another Python, another Tesseract)
+can change the behaviour. Docker packages the app **together with everything it needs** into one unit
+that runs the same on any computer that has Docker.
+
+### Words you need
+
+| Word | Plain meaning |
+|---|---|
+| **image** | A read-only package: a tiny Linux, plus Python, plus our libraries, plus Tesseract, plus our code. Like an installer that already ran. Built from the `Dockerfile`. |
+| **container** | One running copy of an image. Starting one takes seconds; stopping it throws away everything it wrote. You can run many from one image. |
+| **Dockerfile** | The recipe: a list of instructions that build the image, top to bottom. |
+| **layer** | Every instruction produces a layer. Docker **caches** layers: if an instruction and everything above it are unchanged, the old result is reused instead of redone. |
+| **base image** | The starting point (`python:3.12-slim`, a small Debian Linux that already has Python). |
+| **registry** | A place to store and download images (Docker Hub, GitHub's `ghcr.io`). |
+| **docker compose** | A way to describe and start several containers together from one file (`compose.yaml`). Today it has one service; the database and the job queue will join it in the next sprint. |
+| **port mapping** | `-p 8000:8000` connects port 8000 of your computer to port 8000 inside the container. Without it nothing outside can reach the app. |
+
+### The Dockerfile, instruction by instruction
+
+| Instruction | What it does and why |
+|---|---|
+| `FROM python:3.12-slim AS builder` | Start stage 1 from a small Python image. `slim` is a few hundred MB smaller than the full image. |
+| `COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv ...` | Take the `uv` program out of its official image. Pinned to an exact version. |
+| `ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never` | Precompile Python files (faster start), copy files instead of linking (needed across Docker layers), and use the Python already in the image instead of downloading another. |
+| `COPY pyproject.toml uv.lock .python-version ./` then `RUN uv sync --locked --no-dev --no-install-project` | **The cache trick.** Only the three dependency files are copied before the slow install. While they stay unchanged, Docker skips the install, so editing our own code never reinstalls libraries. `--locked` = exact versions from `uv.lock`; `--no-dev` = leave out pytest, ruff, mypy, pre-commit (the running app does not need them). |
+| `FROM python:3.12-slim AS runtime` | **Stage 2 (multi-stage build).** A new, clean image. Stage 1 and its cache are discarded; only what we copy across survives. |
+| `RUN apt-get install tesseract-ocr` | The OCR program. `--no-install-recommends` skips optional extras; removing `/var/lib/apt/lists` deletes the package index so it does not bloat the image. |
+| `RUN useradd --uid 10001 app` and `USER 10001` | **Do not run as root.** If the app were ever compromised, the attacker would only be an unprivileged user. A numeric ID lets platforms verify it. |
+| `COPY --from=builder /app/.venv /app/.venv` | Bring the finished Python environment from stage 1. It works because both stages use the **same base image**, so the Python it points to is at the same path. |
+| `COPY api ./api`, `COPY pipeline ./pipeline` | Only the two folders the program needs. No tests, no scripts, no docs. |
+| `ENV PATH="/app/.venv/bin:$PATH"` | Make `uvicorn` and `python` come from our environment. |
+| `HEALTHCHECK ...` | Every 30 s Docker calls `/health`. The container counts as **healthy** only if the answer is `status: ok` (so a missing Tesseract makes it *unhealthy*). `docker ps` shows the state. Slim images have no `curl`, so the check uses Python. |
+| `CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]` | What runs when the container starts. `0.0.0.0` means "listen on every address inside the container"; `127.0.0.1` would be reachable only from inside, which would make the port mapping useless. **One worker on purpose:** the "one PDF at a time" guard lives inside the process; several workers would each allow one job. |
+
+### `.dockerignore`: what must NOT go into the build
+
+Docker first sends the whole folder (the "build context") to the builder. `.dockerignore` filters it. It
+excludes `.git`, `.venv`, caches, `tests`, `scripts`, markdown files, and `*.pdf`. The last one matters:
+**the copyrighted sample pages can never end up inside an image**, even by accident, and the build is
+faster because less is sent.
+
+### `compose.yaml`
+
+`docker compose up --build` builds the image and starts it with the port mapped, the two settings
+as environment variables, and `mem_limit: 1g`. That limit comes from a **measurement**: a real OCR job on
+the densest sample page peaked at about **210 MB** (Python plus Tesseract, sampled every 0.5 s), so 1 GB
+leaves a wide margin and still protects an 8 GB laptop from a runaway container. (The plan's target was
+"under about 1 GB"; this meets it.)
+
+### What was verified, and what was not (honest)
+
+| Check | Status |
+|---|---|
+| Every command the Dockerfile runs (`uv sync --locked --no-dev --no-install-project`, copy only `api/` and `pipeline/`, start `uvicorn`) | **Tested** in a clean folder as a non-root user: `/health` is `ok`, a non-PDF gets 400, a real OCR job returns 10 articles in about 90 s, and no temp files are left behind |
+| Runtime libraries without any dev tools | **Tested**: everything imports, pytest is absent |
+| Dockerfile style and best practice (`hadolint`) | **Clean** (one rule is deliberately ignored, with the reason written next to it) |
+| `compose.yaml`, `ci.yml` syntax | **Checked** (YAML parses; workflow passes `actionlint`) |
+| `docker build` itself, layer caching, image size | **Not run by me**: there is no Docker in my environment. The CI job `docker` builds and smoke-tests the real image on GitHub; you can also build it locally |
+
+### Running it on your 8 GB Windows laptop
+
+Docker Desktop on Windows runs Linux inside a small virtual machine (WSL2), and that VM will happily
+take half your RAM. Limit it once. Create `C:\Users\piyus\.wslconfig` with:
+
+```
+[wsl2]
+memory=3GB
+processors=2
+```
+
+then run `wsl --shutdown` and start Docker Desktop again. Start Docker only when you need it, and close
+it afterwards. For this project Docker is **optional locally**: GitHub builds and tests the image for
+you on every push, and the app runs fine without Docker through `uv run uvicorn ...`. It becomes useful
+locally in the next sprint, when PostgreSQL and Redis run as containers.
+
+### Reading the image from the outside
+
+| Command | Shows |
+|---|---|
+| `docker images` | your images and their sizes |
+| `docker ps` | running containers and their health (`healthy` / `unhealthy` / `starting`) |
+| `docker logs <name>` | what the app printed (errors appear here) |
+| `docker exec -it <name> sh` | a shell inside a running container, to look around |
+| `docker compose down` | stop and remove what compose started |

@@ -196,15 +196,17 @@ Covers milestones 0-2 in a first form, plus the engineering track (typed API, to
 | Extractive summary + byline strip | Basic | Summary quality unchanged; judged weak (Judge story summary misses the key fact) |
 | API | **FastAPI** (was Flask) | Pydantic response models, one error shape, `/health`, `/docs`, one job at a time (503 when busy), strict typing; `tests/test_api.py` (23 tests) |
 | Tooling | Done | uv + lock file, ruff, mypy, `scripts/check.py`, pre-commit (commit and push stages), GitHub Actions CI, Dependabot |
+| Docker | Written; commands verified in a non-root imitation, `hadolint` clean | `Dockerfile`, `.dockerignore`, `compose.yaml`, CI job `docker` builds and smoke-tests the real image. Not yet built on the i3 |
 | Tests | 114 fast (+1 documented xfail) and 8 slow; 122 pass with `check.py --all`; coverage 94% locally | `pytest`, `pytest -m slow`. On CI (no sample PDFs): 106 passed, 8 skipped |
 | Debug overlay | Built | `python -m pipeline.debug`; shows lines, ownership and articles on the page, plus an HTML report |
+| Memory | **Measured**: peak about 210 MB (Python + Tesseract) on IE page 1, sampled every 0.5 s on the sandbox | meets the "under ~1 GB" target; `compose.yaml` limit is 1 GB |
 | Speed | **Slow** | Roughly 100 s for a dense IE page, 50 s for the scan page, on the sandbox CPU; not yet measured on the i3 |
 
 Generalization check (Bombay Times, 4 scanned pages): **weak.** Ads reported as news, story boxes spanning whole pages, garbled headlines on busy layouts. The scan path needs real column/region detection.
 
-Not yet done: Dockerfile, job queue and database (engineering sprint 2), labeled benchmark set (milestone 0), boxed-region detection, ad classifier, cross-page joining, LLM summaries.
+Not yet done: job queue and database (engineering sprint 2), labeled benchmark set (milestone 0), boxed-region detection, ad classifier, cross-page joining, LLM summaries.
 
-Engineering roadmap: sprint 1 = FastAPI (done), tooling (done), pre-commit + CI (done), Docker (next); sprint 2 = PostgreSQL + job queue + caching; sprints 3-4 = the ML track in section 14, then search and monitoring.
+Engineering roadmap: sprint 1 = FastAPI (done), tooling (done), pre-commit + CI (done), Docker (written, awaiting first real build); sprint 2 = PostgreSQL + job queue + caching; sprints 3-4 = the ML track in section 14, then search and monitoring.
 
 ## 13. AI/ML track (first draft; superseded by section 14)
 
