@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 15  # a stuck job must not run (and bill) for hours
     steps:
       - name: Get the code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Tesseract (the OCR program; not a Python package)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
@@ -49,7 +49,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Get the code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Build the image
         run: docker build -t newspaper-pipeline .
